@@ -124,30 +124,40 @@
       font-weight: 700;
       margin-bottom: 8px;
     }
-    .quiz-options {
-      display: grid;
-      gap: 8px;
-    }
-    .quiz-option {
-      display: flex;
-      gap: 10px;
-      align-items: flex-start;
+    .quiz-answer {
+      width: 100%;
       border: 1px solid var(--line);
       border-radius: 10px;
       padding: 10px 12px;
-      background: #fafafa;
+      background: #fff;
+      font: inherit;
     }
-    .quiz-option.correct {
+    .quiz-answer.correct {
       border-color: #15803d;
       background: #f0fdf4;
     }
-    .quiz-option.incorrect {
+    .quiz-answer.incorrect {
       border-color: #b91c1c;
       background: #fef2f2;
     }
-    .quiz-option input {
-      margin-top: 0.25rem;
-      accent-color: var(--accent);
+    .quiz-feedback {
+      margin-top: 8px;
+      font-size: 0.95rem;
+      color: var(--muted);
+    }
+    .quiz-feedback.correct {
+      color: #166534;
+      font-weight: 700;
+    }
+    .quiz-feedback.incorrect {
+      color: #991b1b;
+      font-weight: 700;
+    }
+    .quiz-correct-answer {
+      display: block;
+      margin-top: 4px;
+      font-weight: 400;
+      color: var(--ink);
     }
     .quiz-footer {
       display: flex;
@@ -171,7 +181,7 @@
   <div class="wrap">
     <section class="header">
       <h1>REL C 225 Midterm Study Guide (Completed)</h1>
-      <div class="meta">Built from your uploaded guide. Static version for reading/printing, with section quizzes generated from the answers below.</div>
+      <div class="meta">Built from your uploaded guide. Static version for reading/printing, with short-answer quizzes generated from the answers below.</div>
     </section>
 
     <section class="unit">
@@ -308,6 +318,30 @@
     </section>
   </div>
   <script>
+    const STOP_WORDS = new Set([
+      "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has",
+      "he", "in", "is", "it", "its", "of", "on", "or", "that", "the", "their",
+      "them", "there", "they", "this", "to", "was", "were", "will", "with"
+    ]);
+
+    const NUMBER_WORDS = {
+      zero: "0",
+      one: "1",
+      two: "2",
+      three: "3",
+      four: "4",
+      five: "5",
+      six: "6",
+      seven: "7",
+      eight: "8",
+      nine: "9",
+      ten: "10",
+      first: "1st",
+      second: "2nd",
+      third: "3rd",
+      fourth: "4th"
+    };
+
     function shuffle(items) {
       const copy = [...items];
       for (let i = copy.length - 1; i > 0; i -= 1) {
@@ -317,25 +351,72 @@
       return copy;
     }
 
-    function sampleDistractors(sectionAnswers, correctAnswer, globalAnswers) {
-      const localPool = sectionAnswers.filter((answer) => answer !== correctAnswer);
-      const globalPool = globalAnswers.filter((answer) => answer !== correctAnswer && !localPool.includes(answer));
-      const distractors = [];
-
-      for (const answer of shuffle(localPool)) {
-        if (distractors.length === 3) break;
-        distractors.push(answer);
-      }
-
-      for (const answer of shuffle(globalPool)) {
-        if (distractors.length === 3) break;
-        distractors.push(answer);
-      }
-
-      return distractors;
+    function sampleQuestions(items, count) {
+      return shuffle(items).slice(0, Math.min(count, items.length));
     }
 
-    function buildQuizMarkup(unit, unitIndex, sectionData, globalAnswers) {
+    function normalizeText(text) {
+      return text
+        .toLowerCase()
+        .replace(/[()]/g, " ")
+        .replace(/&/g, " and ")
+        .replace(/[^a-z0-9\s-]/g, " ")
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((token) => NUMBER_WORDS[token] || token)
+        .join(" ")
+        .trim();
+    }
+
+    function significantTokens(text) {
+      return normalizeText(text)
+        .split(" ")
+        .filter((token) => token && !STOP_WORDS.has(token) && token.length > 2);
+    }
+
+    function isLenientMatch(input, answer) {
+      const normalizedInput = normalizeText(input);
+      const normalizedAnswer = normalizeText(answer);
+
+      if (!normalizedInput) {
+        return false;
+      }
+
+      if (normalizedInput === normalizedAnswer) {
+        return true;
+      }
+
+      if (normalizedAnswer.includes(normalizedInput) && normalizedInput.length >= 4) {
+        return true;
+      }
+
+      if (normalizedInput.includes(normalizedAnswer) && normalizedAnswer.length >= 4) {
+        return true;
+      }
+
+      const inputTokens = significantTokens(input);
+      const answerTokens = significantTokens(answer);
+
+      if (!inputTokens.length || !answerTokens.length) {
+        return false;
+      }
+
+      const overlap = inputTokens.filter((token) => answerTokens.includes(token));
+      const uniqueOverlap = [...new Set(overlap)];
+      const overlapRatio = uniqueOverlap.length / Math.max(1, answerTokens.length);
+
+      if (answerTokens.length <= 3) {
+        return uniqueOverlap.length >= 1;
+      }
+
+      if (answerTokens.length <= 6) {
+        return uniqueOverlap.length >= 2 || overlapRatio >= 0.5;
+      }
+
+      return uniqueOverlap.length >= 3 || overlapRatio >= 0.4;
+    }
+
+    function buildQuizMarkup(unit, unitIndex, sectionData) {
       const shell = document.createElement("div");
       shell.className = "quiz-shell";
 
@@ -349,7 +430,7 @@
 
       const label = document.createElement("div");
       label.className = "quiz-label";
-      label.textContent = "Questions and answer choices are randomized each time.";
+      label.textContent = `This page loads a fresh random set of up to ${sectionData.quizSize} short-answer questions for this section.`;
 
       controls.append(startButton, label);
 
@@ -360,17 +441,9 @@
       shell.append(controls, panel);
       unit.append(shell);
 
+      let activeQuestions = sectionData.sampledItems;
+
       function renderQuiz() {
-        const randomizedQuestions = shuffle(sectionData.items).map((item, itemIndex) => {
-          const distractors = sampleDistractors(sectionData.answers, item.answer, globalAnswers);
-          const options = shuffle([item.answer, ...distractors]).map((option) => ({
-            text: option,
-            isCorrect: option === item.answer,
-          }));
-
-          return { ...item, options, itemIndex };
-        });
-
         panel.innerHTML = "";
 
         const title = document.createElement("h3");
@@ -378,41 +451,30 @@
 
         const note = document.createElement("p");
         note.className = "quiz-note";
-        note.textContent = "Choose the best answer for each prompt, then submit to score the section.";
+        note.textContent = "Type your answer in your own words. Grading is lenient and checks for close matches and key ideas, not just exact wording.";
 
         const list = document.createElement("ol");
         list.className = "quiz-list";
 
-        randomizedQuestions.forEach((question, questionIndex) => {
+        activeQuestions.forEach((question, questionIndex) => {
           const listItem = document.createElement("li");
           listItem.className = "quiz-item";
-          listItem.dataset.correctAnswer = question.answer;
 
           const questionText = document.createElement("div");
           questionText.className = "quiz-question";
           questionText.textContent = question.question;
 
-          const options = document.createElement("div");
-          options.className = "quiz-options";
+          const input = document.createElement("input");
+          input.type = "text";
+          input.className = "quiz-answer";
+          input.name = `unit-${unitIndex}-question-${questionIndex}`;
+          input.placeholder = "Type your answer";
+          input.autocomplete = "off";
 
-          question.options.forEach((option, optionIndex) => {
-            const optionLabel = document.createElement("label");
-            optionLabel.className = "quiz-option";
+          const feedback = document.createElement("div");
+          feedback.className = "quiz-feedback";
 
-            const radio = document.createElement("input");
-            radio.type = "radio";
-            radio.name = `unit-${unitIndex}-question-${questionIndex}`;
-            radio.value = option.text;
-            radio.dataset.correct = option.isCorrect ? "true" : "false";
-
-            const optionText = document.createElement("span");
-            optionText.textContent = option.text;
-
-            optionLabel.append(radio, optionText);
-            options.append(optionLabel);
-          });
-
-          listItem.append(questionText, options);
+          listItem.append(questionText, input, feedback);
           list.append(listItem);
         });
 
@@ -435,31 +497,34 @@
         submit.addEventListener("click", () => {
           let correct = 0;
 
-          list.querySelectorAll(".quiz-item").forEach((item) => {
-            item.querySelectorAll(".quiz-option").forEach((option) => {
-              option.classList.remove("correct", "incorrect");
-            });
+          list.querySelectorAll(".quiz-item").forEach((item, itemIndex) => {
+            const input = item.querySelector(".quiz-answer");
+            const feedback = item.querySelector(".quiz-feedback");
+            const answer = activeQuestions[itemIndex].answer;
+            const matched = isLenientMatch(input.value, answer);
 
-            const selected = item.querySelector("input:checked");
-            const correctOption = item.querySelector('input[data-correct="true"]');
+            input.classList.remove("correct", "incorrect");
+            feedback.classList.remove("correct", "incorrect");
 
-            if (correctOption) {
-              correctOption.closest(".quiz-option").classList.add("correct");
-            }
-
-            if (selected) {
-              if (selected.dataset.correct === "true") {
-                correct += 1;
-              } else {
-                selected.closest(".quiz-option").classList.add("incorrect");
-              }
+            if (matched) {
+              correct += 1;
+              input.classList.add("correct");
+              feedback.classList.add("correct");
+              feedback.textContent = "Accepted";
+            } else {
+              input.classList.add("incorrect");
+              feedback.classList.add("incorrect");
+              feedback.innerHTML = `Not accepted <span class="quiz-correct-answer">Suggested answer: ${answer}</span>`;
             }
           });
 
-          result.textContent = `Score: ${correct}/${randomizedQuestions.length}`;
+          result.textContent = `Score: ${correct}/${activeQuestions.length}`;
         });
 
-        retry.addEventListener("click", renderQuiz);
+        retry.addEventListener("click", () => {
+          activeQuestions = sampleQuestions(sectionData.items, sectionData.quizSize);
+          renderQuiz();
+        });
 
         footer.append(submit, retry, result);
         panel.append(title, note, list, footer);
@@ -474,9 +539,6 @@
 
     document.addEventListener("DOMContentLoaded", () => {
       const units = [...document.querySelectorAll(".unit")];
-      const allAnswers = units.flatMap((unit) =>
-        [...unit.querySelectorAll(".a")].map((node) => node.textContent.trim())
-      );
 
       units.forEach((unit, unitIndex) => {
         const title = unit.querySelector("h2")?.textContent.trim() || `Section ${unitIndex + 1}`;
@@ -485,11 +547,14 @@
           answer: item.querySelector(".a")?.textContent.trim() || "",
         })).filter((item) => item.question && item.answer);
 
+        const quizSize = Math.min(5, items.length);
+
         buildQuizMarkup(unit, unitIndex, {
           title,
           items,
-          answers: items.map((item) => item.answer),
-        }, allAnswers);
+          quizSize,
+          sampledItems: sampleQuestions(items, quizSize),
+        });
       });
     });
   </script>
