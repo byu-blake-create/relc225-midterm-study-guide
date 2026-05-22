@@ -62,10 +62,108 @@
       padding: 10px;
       min-height: 40px;
     }
+    .quiz-shell {
+      border-top: 1px solid var(--line);
+      padding: 0 16px 16px;
+      background: #fcfffe;
+    }
+    .quiz-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding-top: 14px;
+    }
+    .quiz-label {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .quiz-btn,
+    .quiz-submit {
+      appearance: none;
+      border: 1px solid var(--accent);
+      background: var(--accent);
+      color: #fff;
+      border-radius: 999px;
+      padding: 10px 16px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .quiz-btn.secondary {
+      background: #fff;
+      color: var(--accent);
+    }
+    .quiz-panel[hidden] {
+      display: none;
+    }
+    .quiz-panel {
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      padding: 16px;
+    }
+    .quiz-panel h3 {
+      margin: 0 0 6px;
+      font-size: 1rem;
+    }
+    .quiz-note {
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .quiz-list {
+      margin: 0;
+      padding-left: 22px;
+    }
+    .quiz-item {
+      margin-top: 16px;
+    }
+    .quiz-question {
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .quiz-options {
+      display: grid;
+      gap: 8px;
+    }
+    .quiz-option {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: #fafafa;
+    }
+    .quiz-option.correct {
+      border-color: #15803d;
+      background: #f0fdf4;
+    }
+    .quiz-option.incorrect {
+      border-color: #b91c1c;
+      background: #fef2f2;
+    }
+    .quiz-option input {
+      margin-top: 0.25rem;
+      accent-color: var(--accent);
+    }
+    .quiz-footer {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+    }
+    .quiz-result {
+      font-weight: 700;
+    }
     @media print {
       body { background: #fff; }
       .unit { break-inside: avoid; }
       .wrap { max-width: 100%; margin: 0; padding: 0; }
+      .quiz-shell { display: none; }
     }
   </style>
 </head>
@@ -73,7 +171,7 @@
   <div class="wrap">
     <section class="header">
       <h1>REL C 225 Midterm Study Guide (Completed)</h1>
-      <div class="meta">Built from your uploaded guide. Static version for reading/printing.</div>
+      <div class="meta">Built from your uploaded guide. Static version for reading/printing, with section quizzes generated from the answers below.</div>
     </section>
 
     <section class="unit">
@@ -209,5 +307,191 @@
       </ol>
     </section>
   </div>
+  <script>
+    function shuffle(items) {
+      const copy = [...items];
+      for (let i = copy.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    }
+
+    function sampleDistractors(sectionAnswers, correctAnswer, globalAnswers) {
+      const localPool = sectionAnswers.filter((answer) => answer !== correctAnswer);
+      const globalPool = globalAnswers.filter((answer) => answer !== correctAnswer && !localPool.includes(answer));
+      const distractors = [];
+
+      for (const answer of shuffle(localPool)) {
+        if (distractors.length === 3) break;
+        distractors.push(answer);
+      }
+
+      for (const answer of shuffle(globalPool)) {
+        if (distractors.length === 3) break;
+        distractors.push(answer);
+      }
+
+      return distractors;
+    }
+
+    function buildQuizMarkup(unit, unitIndex, sectionData, globalAnswers) {
+      const shell = document.createElement("div");
+      shell.className = "quiz-shell";
+
+      const controls = document.createElement("div");
+      controls.className = "quiz-controls";
+
+      const startButton = document.createElement("button");
+      startButton.type = "button";
+      startButton.className = "quiz-btn";
+      startButton.textContent = "Start Quiz";
+
+      const label = document.createElement("div");
+      label.className = "quiz-label";
+      label.textContent = "Questions and answer choices are randomized each time.";
+
+      controls.append(startButton, label);
+
+      const panel = document.createElement("div");
+      panel.className = "quiz-panel";
+      panel.hidden = true;
+
+      shell.append(controls, panel);
+      unit.append(shell);
+
+      function renderQuiz() {
+        const randomizedQuestions = shuffle(sectionData.items).map((item, itemIndex) => {
+          const distractors = sampleDistractors(sectionData.answers, item.answer, globalAnswers);
+          const options = shuffle([item.answer, ...distractors]).map((option) => ({
+            text: option,
+            isCorrect: option === item.answer,
+          }));
+
+          return { ...item, options, itemIndex };
+        });
+
+        panel.innerHTML = "";
+
+        const title = document.createElement("h3");
+        title.textContent = `${sectionData.title} Quiz`;
+
+        const note = document.createElement("p");
+        note.className = "quiz-note";
+        note.textContent = "Choose the best answer for each prompt, then submit to score the section.";
+
+        const list = document.createElement("ol");
+        list.className = "quiz-list";
+
+        randomizedQuestions.forEach((question, questionIndex) => {
+          const listItem = document.createElement("li");
+          listItem.className = "quiz-item";
+          listItem.dataset.correctAnswer = question.answer;
+
+          const questionText = document.createElement("div");
+          questionText.className = "quiz-question";
+          questionText.textContent = question.question;
+
+          const options = document.createElement("div");
+          options.className = "quiz-options";
+
+          question.options.forEach((option, optionIndex) => {
+            const optionLabel = document.createElement("label");
+            optionLabel.className = "quiz-option";
+
+            const radio = document.createElement("input");
+            radio.type = "radio";
+            radio.name = `unit-${unitIndex}-question-${questionIndex}`;
+            radio.value = option.text;
+            radio.dataset.correct = option.isCorrect ? "true" : "false";
+
+            const optionText = document.createElement("span");
+            optionText.textContent = option.text;
+
+            optionLabel.append(radio, optionText);
+            options.append(optionLabel);
+          });
+
+          listItem.append(questionText, options);
+          list.append(listItem);
+        });
+
+        const footer = document.createElement("div");
+        footer.className = "quiz-footer";
+
+        const submit = document.createElement("button");
+        submit.type = "button";
+        submit.className = "quiz-submit";
+        submit.textContent = "Submit Quiz";
+
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "quiz-btn secondary";
+        retry.textContent = "Shuffle Again";
+
+        const result = document.createElement("div");
+        result.className = "quiz-result";
+
+        submit.addEventListener("click", () => {
+          let correct = 0;
+
+          list.querySelectorAll(".quiz-item").forEach((item) => {
+            item.querySelectorAll(".quiz-option").forEach((option) => {
+              option.classList.remove("correct", "incorrect");
+            });
+
+            const selected = item.querySelector("input:checked");
+            const correctOption = item.querySelector('input[data-correct="true"]');
+
+            if (correctOption) {
+              correctOption.closest(".quiz-option").classList.add("correct");
+            }
+
+            if (selected) {
+              if (selected.dataset.correct === "true") {
+                correct += 1;
+              } else {
+                selected.closest(".quiz-option").classList.add("incorrect");
+              }
+            }
+          });
+
+          result.textContent = `Score: ${correct}/${randomizedQuestions.length}`;
+        });
+
+        retry.addEventListener("click", renderQuiz);
+
+        footer.append(submit, retry, result);
+        panel.append(title, note, list, footer);
+      }
+
+      startButton.addEventListener("click", () => {
+        panel.hidden = false;
+        renderQuiz();
+        panel.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const units = [...document.querySelectorAll(".unit")];
+      const allAnswers = units.flatMap((unit) =>
+        [...unit.querySelectorAll(".a")].map((node) => node.textContent.trim())
+      );
+
+      units.forEach((unit, unitIndex) => {
+        const title = unit.querySelector("h2")?.textContent.trim() || `Section ${unitIndex + 1}`;
+        const items = [...unit.querySelectorAll("ol > li")].map((item) => ({
+          question: item.querySelector(".q")?.textContent.trim() || "",
+          answer: item.querySelector(".a")?.textContent.trim() || "",
+        })).filter((item) => item.question && item.answer);
+
+        buildQuizMarkup(unit, unitIndex, {
+          title,
+          items,
+          answers: items.map((item) => item.answer),
+        }, allAnswers);
+      });
+    });
+  </script>
 </body>
 </html>
